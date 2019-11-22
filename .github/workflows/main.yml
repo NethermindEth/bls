@@ -13,11 +13,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
     steps:
-    - uses: actions/checkout@master
-      with:
-        submodules: true
     - name: Cloning required repositories
       run: |
+        git clone git://github.com/NethermindEth/bls.git
         git clone git://github.com/herumi/mcl.git
     - name: Installing libgmp-dev for ubuntu
       if: matrix.os == 'ubuntu-latest'
