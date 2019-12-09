@@ -12,4 +12,4 @@ jobs:
     steps:
     - name: Send dispatch event to nethermind repo
       run: |
-        curl -v -X POST -u "${{ secrets.PAT_USERNAME}}:${{secrets.PAT_TOKEN}}" -H "Accept: application/vnd.github.everest-preview+json" -H "Content-Type: application/json" --data '{"event_type":"update"}' https://api.github.com/repos/nethermindeth/nethermind/dispatches
+        curl -v -X POST -u "${{ secrets.PAT_USERNAME}}:${{secrets.PAT_TOKEN}}" -H "Accept: application/vnd.github.everest-preview+json" -H "Content-Type: application/json" --data '{"event_type":"bls_build"}' https://api.github.com/repos/nethermindeth/nethermind/dispatches
