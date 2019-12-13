@@ -189,6 +189,7 @@ BLS_DLL_API int blsVerifyHash(const blsSignature *sig, const blsPublicKey *pub, 
 */
 BLS_DLL_API int blsVerifyAggregatedHashes(const blsSignature *aggSig, const blsPublicKey *pubVec, const void *hVec, size_t sizeofHash, mclSize n);
 
+///// from here only for BLS12-381 with BLS_ETH
 /*
 	sign hashWithDomain by sec
 	hashWithDomain[0:32] 32 bytes message
@@ -201,14 +202,22 @@ BLS_DLL_API int blsSignHashWithDomain(blsSignature *sig, const blsSecretKey *sec
 // return 1 if valid
 BLS_DLL_API int blsVerifyHashWithDomain(const blsSignature *sig, const blsPublicKey *pub, const unsigned char hashWithDomain[40]);
 
-// utility function: convert hashWithDomain to a serialized Fp2
-BLS_DLL_API void blsHashWithDomainToFp2(uint8_t buf[96], const uint8_t hashWithDomain[40]);
+/*
+	Uncompressed version of Serialize/Deserialize
+	the buffer size is twice of Serialize/Deserialize
+*/
+BLS_DLL_API mclSize blsPublicKeySerializeUncompressed(void *buf, mclSize maxBufSize, const blsPublicKey *pub);
+BLS_DLL_API mclSize blsSignatureSerializeUncompressed(void *buf, mclSize maxBufSize, const blsSignature *sig);
+BLS_DLL_API mclSize blsPublicKeyDeserializeUncompressed(blsPublicKey *pub, const void *buf, mclSize bufSize);
+BLS_DLL_API mclSize blsSignatureDeserializeUncompressed(blsSignature *sig, const void *buf, mclSize bufSize);
 
 /*
 	pubVec is an array of size n
 	hashWithDomain is an array of size (40 * n)
 */
 BLS_DLL_API int blsVerifyAggregatedHashWithDomain(const blsSignature *aggSig, const blsPublicKey *pubVec, const unsigned char hashWithDomain[][40], mclSize n);
+
+///// to here only for BLS12-381 with BLS_ETH
 
 // sub
 BLS_DLL_API void blsSecretKeySub(blsSecretKey *sec, const blsSecretKey *rhs);
