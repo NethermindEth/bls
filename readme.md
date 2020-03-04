@@ -13,12 +13,160 @@ An implementation of BLS threshold signature
 * iOS
 * WebAssembly
 
-# precompiled version for Ethereum 2.0 spec
+# News
+This library supports the new BLS Signatures specified at [Ethereum 2.0 Phase 0](https://github.com/ethereum/eth2.0-specs/blob/dev/specs/phase0/beacon-chain.md#bls-signatures).
 
-- Go; [bls-eth-go-binary](https://github.com/herumi/bls-eth-go-binary)
-  - the precompiled static binary `libbls384_256.a` for some architectures is provided at [bls-eth-go-binary/bls/lib](https://github.com/herumi/bls-eth-go-binary/tree/master/bls/lib).
-- Rust; [bls-eth-rust](https://github.com/herumi/bls-eth-rust)
-- wasm; [bls-eth-wasm](https://github.com/herumi/bls-eth-wasm)
+bls.h | eth2.0 spec name|
+------|-----------------|
+blsSign|Sign|
+blsVerify|Verify|
+blsAggregateSignature|Aggregate|
+blsFastAggregateVerify|FastAggregateVerify|
+blsAggregateVerifyNoCheck|AggregateVerify|
+
+## Support language bindings
+
+language|repository|
+--|--|
+Go|[bls-eth-go-binary](https://github.com/herumi/bls-eth-go-binary)|
+WebAssembly(Node.js)|[bls-eth-wasm](https://github.com/herumi/bls-eth-wasm)|
+Rust|[bls-eth-rust](https://github.com/herumi/bls-eth-rust)|
+
+
+## APIs for eth2.0-specs
+
+### Header files
+
+```
+#include <mcl/bn384_256.h>
+#include <bls/bls.h>
+```
+
+`bn384_256.h` is for 384-bit `p` and 256-bit `r`, where the elliptic curve is defined over `Fp` and the order of `G1` and `G2` is `r`.
+
+### Libraries
+
+The compiled static libraries for {linux, windows, darwin}/amd64 and android/{arm64-v8a, armeabi-v7a}
+are provided at [bls-eth-go-binary/bls/lib](https://github.com/herumi/bls-eth-go-binary/tree/master/bls/lib)
+
+On Linux, macOS
+
+```
+make CXX=clang++-8 lib/libbls384_256.a BLS_ETH=1
+```
+
+On Windows
+
+```
+mklib eth
+```
+### Initialization
+
+```
+// init library at once before calling the other apis
+blsInit(MCL_BLS12_381, MCLBN_COMPILED_TIME_VAR);
+
+// use the latest eth2.0 spec
+blsSetETHmode(BLS_ETH_MODE_LATEST);
+```
+
+### Setup
+
+Init SecretKey `sec` and create PublicKey `pub`.
+```
+blsSecretKey sec;
+blsPublicKey pub;
+
+// init SecretKey sec by random number
+blsSecretKeySetByCSPRNG(&sec);
+
+// get PublicKey pub from SecretKey sec
+blsGetPublicKey(&pub, &sec);
+```
+
+### Sign
+
+Make Signature `sig` of Message `msg[0..msgSize-1]` by SecretKey `sec`.
+```
+blsSignature sig;
+char msg[] = "hello";
+const size_t msgSize = strlen(msg);
+
+blsSign(&sig, &sec, msg, msgSize);
+```
+
+`msg` may contain `\x00` if the correct `msgSize` is specified.
+
+### Verify
+
+Verify Signature `sig` of Message `msg[0..msgSize-1]` by PublicKey `pub`.
+```
+// return 1 if it is valid else 0
+int blsVerify(&sig, &pub, msg, msgSize);
+```
+
+### Aggregate Signature
+
+Aggregate Signatures `sigVec[0]`, ..., `sigVec[n-1]` to `aggSig`.
+
+```
+// return 1 if it is valid else 0
+void blsAggregateSignature(
+  blsSignature *aggSig,
+  const blsSignature *sigVec,
+  mclSize n
+);
+```
+
+### FastAggregateVerify
+
+Verify Signature `sig` of Message `msg[0..msgSize-1]` by `pubVec[0]`, ..., `pubVec[n-1]`.
+
+```
+int blsFastAggregateVerify(
+  const blsSignature *sig,
+  const blsPublicKey *pubVec,
+  mclSize n,
+  const void *msg,
+  mclSize msgSize
+);
+```
+
+### AggregateVerify
+
+- `pubVec` is `n` array of PublicKey
+- `msgVec` is `n * msgSize`-byte array, which concatenates `n`-byte messages of length `msgSize`.
+
+Verify Signature `sig` of (Message `msgVec[msgSize * i..msgSize * (i+1)-1]` and `pubVec[i]`) for i = `0`, ..., `n-1`.
+
+```
+int blsAggregateVerifyNoCheck(
+  const blsSignature *sig,
+  const blsPublicKey *pubVec,
+  const void *msgVec,
+  mclSize msgSize,
+  mclSize n
+);
+```
+
+REMARK : `blsAggregateVerifyNoCheck` does not check
+- `sig` has the correct order
+- every `n`-byte messages of length `msgSize` are different each other
+
+Check them at the caller if necessary.
+
+### Check order
+
+Check whether `sig` and `pub` have the correct order `r`.
+
+```
+// return 1 if it is valid else 0
+int blsSignatureIsValidOrder(const blsSignature *sig);
+int blsPublicKeyIsValidOrder(const blsPublicKey *pub);
+```
+
+# End for eth2.0-spec
+<hr>
 
 # Support languages
 
@@ -38,7 +186,7 @@ git clone git://github.com/herumi/cybozulib_ext ; for only Windows
 
 # News
 * disabled to check the order in setStr/deserialize. call once `blsSignatureVerifyOrder(1)` or `blsPublicKeyVerifyOrder(1)` to check it.
-* add uncompressed function to PubliKey and Sign
+* add uncompressed function to PublicKey and Sign
 * add blsSignHashWithDomain, blsVerifyHashWithDomain(see (Ethereum 2.0 spec mode)[https://github.com/herumi/bls/#ethereum-20-spec-mode])
 * rename blsGetGeneratorOfG{1 or 2} to blsGetGeneratorOfPublicKey
 * add blsSetETHserialization(1) to use ETH serialization for BLS12-381
@@ -246,7 +394,7 @@ void Sign::recover(const SignVec& signVec, const IdVec& idVec);
 
 Collect k pair of sign `f(id) H(m)` and `id` for a message m and recover the original signature `s H(m)` for the secret key `s`.
 
-### PoP (Proof of Possesion)
+### PoP (Proof of Possession)
 
 ```
 void SecretKey::getPop(Sign& pop) const;

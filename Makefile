@@ -141,6 +141,9 @@ test_go384_swapg: ffi/go/bls/bls.go ffi/go/bls/bls_test.go $(BLS384_SLIB)
 test_go384_256_swapg: ffi/go/bls/bls.go ffi/go/bls/bls_test.go $(BLS384_256_SLIB)
 	cd ffi/go/bls && env PATH=$(PATH_VAL) go test -tags bn384_256_swapg .
 
+test_eth: bin/bls_c384_256_test.exe
+	bin/bls_c384_256_test.exe
+
 test_go:
 	$(MAKE) test_go256
 	$(MAKE) test_go384
@@ -153,7 +156,7 @@ test_go_swapg:
 
 EMCC_OPT=-I./include -I./src -I../mcl/include -I./ -Wall -Wextra
 EMCC_OPT+=-O3 -DNDEBUG
-EMCC_OPT+=-s WASM=1 -s NO_EXIT_RUNTIME=1 -s MODULARIZE=1 #-s ASSERTIONS=1
+EMCC_OPT+=-s WASM=1 -s NO_EXIT_RUNTIME=1 -s NODEJS_CATCH_EXIT=0 -s NODEJS_CATCH_REJECTION=0  -s MODULARIZE=1 #-s ASSERTIONS=1
 EMCC_OPT+=-DCYBOZU_MINIMUM_EXCEPTION
 EMCC_OPT+=-s ABORTING_MALLOC=0
 JS_DEP=src/bls_c384.cpp ../mcl/src/fp.cpp Makefile
@@ -173,6 +176,8 @@ CLANG_WASM_OPT=-O3 -DNDEBUG -fPIC -DMCL_SIZEOF_UNIT=8 -DMCL_MAX_BIT_SIZE=384 -DM
 bls-wasm-by-clang:
 	clang++-8 -c -o $(OBJ_DIR)/bls_c384_256.o src/bls_c384_256.cpp $(CLANG_WASM_OPT)
 	clang++-8 -c -o $(OBJ_DIR)/fp.o ../mcl/src/fp.cpp $(CLANG_WASM_OPT)
+	clang++-8 -c -o $(OBJ_DIR)/base64.o ../mcl/src/base64.ll $(CLANG_WASM_OPT)
+	wasm-ld-8 --no-entry -o ../bls-wasm $(OBJ_DIR)/bls_c384_256.o $(OBJ_DIR)/fp.o $(OBJ_DIR)/base64.o
 	#ld.gold -o ../bls-wasm $(OBJ_DIR)/bls_c384_256.o $(OBJ_DIR)/fp.o
 
 # ios
@@ -239,11 +244,16 @@ DEPEND_FILE=$(addprefix $(OBJ_DIR)/, $(ALL_SRC:.cpp=.d))
 -include $(DEPEND_FILE)
 
 PREFIX?=/usr/local
+prefix?=$(PREFIX)
+includedir?=$(prefix)/include
+libdir?=$(prefix)/lib
+INSTALL?=install
+INSTALL_DATA?=$(INSTALL) -m 644
 install: lib/libbls256.a lib/libbls256.$(LIB_SUF) lib/libbls384.a lib/libbls384.$(LIB_SUF) lib/libbls384_256.a lib/libbls384_256.$(LIB_SUF)
-	$(MKDIR) $(PREFIX)/include/bls
-	cp -a include/bls $(PREFIX)/include/
-	$(MKDIR) $(PREFIX)/lib
-	cp -a lib/libbls256.a lib/libbls256.$(LIB_SUF) lib/libbls384.a lib/libbls384.$(LIB_SUF) lib/libbls384_256.a lib/libbls384_256.$(LIB_SUF) $(PREFIX)/lib/
+	$(MKDIR) $(DESTDIR)$(includedir)/bls $(DESTDIR)$(libdir)
+	$(INSTALL_DATA) include/bls/*.h* $(DESTDIR)$(includedir)/bls
+	$(INSTALL_DATA) lib/libbls*.a $(DESTDIR)$(libdir)
+	$(INSTALL) -m 755 lib/libbls*.$(LIB_SUF) $(DESTDIR)$(libdir)
 
 .PHONY: test bls-wasm ios
 

@@ -1,10 +1,24 @@
 #include <bls/bls.hpp>
 #include <cybozu/test.hpp>
 #include <cybozu/inttype.hpp>
-#include <iostream>
-#include <sstream>
 #include <cybozu/benchmark.hpp>
 #include <cybozu/sha2.hpp>
+#include <cybozu/atoi.hpp>
+#include <cybozu/file.hpp>
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <sstream>
+
+typedef std::vector<uint8_t> Uint8Vec;
+Uint8Vec fromHexStr(const std::string& s)
+{
+	Uint8Vec ret(s.size() / 2);
+	for (size_t i = 0; i < s.size(); i += 2) {
+		ret[i / 2] = cybozu::hextoi(&s[i], 2);
+	}
+	return ret;
+}
 
 template<class T>
 void streamTest(const T& t)
@@ -410,6 +424,13 @@ void aggregateTest()
 		sig.add(sigs[i]);
 	}
 	CYBOZU_TEST_ASSERT(sig.verify(pub, m));
+	blsSignature sig2;
+	const blsSignature *p = (const blsSignature *)&sigs[0];
+	blsAggregateSignature(&sig2, p, n);
+	CYBOZU_TEST_ASSERT(blsSignatureIsEqual(&sig2, (const blsSignature*)&sig));
+	memset(&sig, 0, sizeof(sig));
+	blsAggregateSignature((blsSignature*)&sig2, 0, 0);
+	CYBOZU_TEST_ASSERT(blsSignatureIsEqual(&sig2, (const blsSignature*)&sig));
 }
 
 void dataTest()
@@ -557,8 +578,203 @@ void setRandFuncTest(int type)
 	printf("\n");
 }
 
+#if BLS_ETH
+void ethAggregateVerifyNoCheckTest()
+{
+	puts("ethAggregateVerifyNoCheckTest");
+	// https://media.githubusercontent.com/media/ethereum/eth2.0-spec-tests/v0.10.1/tests/general/phase0/bls/aggregate_verify/small/fast_aggregate_verify_valid/data.yaml
+	const struct Tbl {
+		const char *pub;
+		const char *msg;
+	} tbl[] = {
+		{
+			"a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a",
+			"0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
+			"b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81",
+			"5656565656565656565656565656565656565656565656565656565656565656",
+		},
+		{
+			"b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f",
+			"abababababababababababababababababababababababababababababababab",
+		}
+	};
+	const char *sigStr = "82f5bfe5550ce639985a46545e61d47c5dd1d5e015c1a82e20673698b8e02cde4f81d3d4801f5747ad8cfd7f96a8fe50171d84b5d1e2549851588a5971d52037218d4260b9e4428971a5c1969c65388873f1c49a4c4d513bdf2bc478048a18a8";
+	const size_t n = CYBOZU_NUM_OF_ARRAY(tbl);
+	bls::Signature sig;
+	bls::PublicKey pubVec[n];
+	Uint8Vec msgVec;
+	sig.deserializeHexStr(sigStr);
+	size_t msgSize = 0;
+	for (size_t i = 0; i < n; i++) {
+		pubVec[i].deserializeHexStr(tbl[i].pub);
+		const Uint8Vec t = fromHexStr(tbl[i].msg);
+		if (i == 0) msgSize = t.size();
+		msgVec.insert(msgVec.end(), t.begin(), t.end());
+	}
+	CYBOZU_TEST_EQUAL(blsAggregateVerifyNoCheck(sig.getPtr(), pubVec[0].getPtr(), msgVec.data(), msgSize, n), 1);
+}
+
+void ethAggregateTest()
+{
+	puts("ethAggregateTest");
+	// https://media.githubusercontent.com/media/ethereum/eth2.0-spec-tests/v0.10.1/tests/general/phase0/bls/aggregate/small/aggregate_0x0000000000000000000000000000000000000000000000000000000000000000/data.yaml
+	const struct {
+		const char *s;
+	} tbl[] = {
+		"b2a0bd8e837fc2a1b28ee5bcf2cddea05f0f341b375e51de9d9ee6d977c2813a5c5583c19d4e7db8d245eebd4e502163076330c988c91493a61b97504d1af85fdc167277a1664d2a43af239f76f176b215e0ee81dc42f1c011dc02d8b0a31e32",
+		"b2deb7c656c86cb18c43dae94b21b107595486438e0b906f3bdb29fa316d0fc3cab1fc04c6ec9879c773849f2564d39317bfa948b4a35fc8509beafd3a2575c25c077ba8bca4df06cb547fe7ca3b107d49794b7132ef3b5493a6ffb2aad2a441",
+		"a1db7274d8981999fee975159998ad1cc6d92cd8f4b559a8d29190dad41dc6c7d17f3be2056046a8bcbf4ff6f66f2a360860fdfaefa91b8eca875d54aca2b74ed7148f9e89e2913210a0d4107f68dbc9e034acfc386039ff99524faf2782de0e",
+	};
+	const char *expect = "973ab0d765b734b1cbb2557bcf52392c9c7be3cd21d5bd28572d99f618c65e921f0dd82560cc103feb9f000c23c00e660e1364ed094f137e1045e73116cd75903af446df3c357540a4970ec367a7f7fa7493a5db27ca322c48d57740908585e8";
+	const size_t n = CYBOZU_NUM_OF_ARRAY(tbl);
+	bls::Signature sig;
+	sig.clear();
+	for (size_t i = 0; i < n; i++) {
+		bls::Signature t;
+		t.deserializeHexStr(tbl[i].s);
+		sig.add(t);
+	}
+	CYBOZU_TEST_EQUAL(sig.serializeToHexStr(), expect);
+}
+
+void ethSignOneTest(const std::string& secHex, const std::string& msgHex, const std::string& sigHex)
+{
+	const Uint8Vec msg = fromHexStr(msgHex);
+	bls::SecretKey sec;
+	sec.setStr(secHex, 16);
+	bls::PublicKey pub;
+	sec.getPublicKey(pub);
+	bls::Signature sig;
+	sec.sign(sig, msg.data(), msg.size());
+	CYBOZU_TEST_EQUAL(sig.serializeToHexStr(), sigHex);
+	CYBOZU_TEST_ASSERT(sig.verify(pub, msg.data(), msg.size()));
+}
+
+void ethSignTest()
+{
+	puts("ethSignTest");
+	std::string fileName = cybozu::GetExePath() + "../test/eth/sign.txt";
+	std::ifstream ifs(fileName.c_str());
+	if (!ifs) {
+		fprintf(stderr, "skip ethSignTest because %s is not found\n", fileName.c_str());
+		return;
+	}
+	for (;;) {
+		std::string h1, h2, h3, sec, msg, sig;
+		ifs >>  h1 >> sec >> h2 >> msg >> h3 >> sig;
+		if (h1.empty()) break;
+		if (h1 != "sec" || h2 != "msg" || h3 != "out") {
+			throw cybozu::Exception("bad format") << fileName << h1 << h2 << h3;
+		}
+		ethSignOneTest(sec, msg, sig);
+	}
+	const char *secHex = "47b8192d77bf871b62e87859d653922725724a5c031afeabc60bcef5ff665138";
+	const char *msgHex = "0000000000000000000000000000000000000000000000000000000000000000";
+	const char *sigHex = "b2deb7c656c86cb18c43dae94b21b107595486438e0b906f3bdb29fa316d0fc3cab1fc04c6ec9879c773849f2564d39317bfa948b4a35fc8509beafd3a2575c25c077ba8bca4df06cb547fe7ca3b107d49794b7132ef3b5493a6ffb2aad2a441";
+	ethSignOneTest(secHex, msgHex, sigHex);
+}
+
+void ethFastAggregateVerifyTest()
+{
+	puts("ethFastAggregateVerifyTest");
+	std::string fileName = cybozu::GetExePath() + "../test/eth/fast_aggregate_verify.txt";
+	std::ifstream ifs(fileName.c_str());
+	if (!ifs) {
+		fprintf(stderr, "skip ethFastAggregateVerifyTest because %s is not found\n", fileName.c_str());
+		return;
+	}
+	int i = 0;
+	for (;;) {
+		std::vector<bls::PublicKey> pubVec;
+		Uint8Vec msg;
+		bls::Signature sig;
+		int output;
+		std::string h;
+		std::string s;
+		for (;;) {
+			ifs >> h;
+			if (h.empty()) return;
+			if (h != "pub") break;
+			bls::PublicKey pub;
+			ifs >> s;
+			pub.deserializeHexStr(s);
+			pubVec.push_back(pub);
+		}
+		printf("i=%d\n", i++);
+		if (h != "msg") throw cybozu::Exception("bad msg") << h;
+		ifs >> s;
+		msg = fromHexStr(s);
+		ifs >> h;
+		if (h != "sig") throw cybozu::Exception("bad sig") << h;
+		ifs >> s;
+		try {
+			sig.deserializeHexStr(s);
+			CYBOZU_TEST_EQUAL(blsSignatureIsValidOrder(sig.getPtr()), 1);
+		} catch (...) {
+			printf("bad signature %s\n", s.c_str());
+			sig.clear();
+		}
+		ifs >> h;
+		if (h != "out") throw cybozu::Exception("bad out") << h;
+		ifs >> s;
+		if (s == "false") {
+			output = 0;
+		} else if (s == "true") {
+			output = 1;
+		} else {
+			throw cybozu::Exception("bad out") << s;
+		}
+		int r = blsFastAggregateVerify(sig.getPtr(), pubVec[0].getPtr(), pubVec.size(), msg.data(), msg.size());
+		CYBOZU_TEST_EQUAL(r, output);
+	}
+}
+
+void blsAggregateVerifyNoCheckTestOne(size_t n)
+{
+	const size_t msgSize = 32;
+	std::vector<bls::PublicKey> pubs(n);
+	std::vector<bls::Signature> sigs(n);
+	std::string msgs(msgSize * n, 0);
+	for (size_t i = 0; i < n; i++) {
+		bls::SecretKey sec;
+		sec.init();
+		sec.getPublicKey(pubs[i]);
+		msgs[msgSize * i] = i;
+		sec.sign(sigs[i], &msgs[msgSize * i], msgSize);
+	}
+	blsSignature aggSig;
+	blsAggregateSignature(&aggSig, sigs[0].getPtr(), n);
+	CYBOZU_TEST_EQUAL(blsAggregateVerifyNoCheck(&aggSig, pubs[0].getPtr(), msgs.data(), msgSize, n), 1);
+	CYBOZU_BENCH_C("blsAggregateVerifyNoCheck", 50, blsAggregateVerifyNoCheck, &aggSig, pubs[0].getPtr(), msgs.data(), msgSize, n);
+	(*(char*)(&aggSig))++;
+	CYBOZU_TEST_EQUAL(blsAggregateVerifyNoCheck(&aggSig, pubs[0].getPtr(), msgs.data(), msgSize, n), 0);
+}
+
+void blsAggregateVerifyNoCheckTest()
+{
+	const size_t nTbl[] = { 1, 2, 15, 16, 17, 50 };
+	for (size_t i = 0; i < CYBOZU_NUM_OF_ARRAY(nTbl); i++) {
+		blsAggregateVerifyNoCheckTestOne(nTbl[i]);
+	}
+}
+
+void ethTest(int type)
+{
+	if (type != MCL_BLS12_381) return;
+	blsSetETHmode(BLS_ETH_MODE_LATEST);
+	ethAggregateTest();
+	ethSignTest();
+	ethAggregateVerifyNoCheckTest();
+	ethFastAggregateVerifyTest();
+	blsAggregateVerifyNoCheckTest();
+}
+#endif
+
 void testAll(int type)
 {
+#if 1
 	blsTest();
 	k_of_nTest();
 	popTest();
@@ -568,6 +784,10 @@ void testAll(int type)
 	verifyAggregateTest(type);
 	setRandFuncTest(type);
 	hashTest(type);
+#endif
+#ifdef BLS_ETH
+	ethTest(type);
+#endif
 }
 CYBOZU_TEST_AUTO(all)
 {

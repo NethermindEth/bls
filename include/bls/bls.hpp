@@ -12,6 +12,7 @@
 #include <string>
 #include <iosfwd>
 #include <stdint.h>
+#include <memory.h>
 
 namespace bls {
 
@@ -91,6 +92,7 @@ class Id {
 	friend class SecretKey;
 	friend class Signature;
 public:
+	const blsId *getPtr() const { return &self_; }
 	Id(unsigned int id = 0)
 	{
 		blsIdSetInt(&self_, id);
@@ -120,6 +122,18 @@ public:
 		if (n == 0) throw std::runtime_error("mclBnFr_getStr");
 		str.resize(n);
 	}
+	std::string getStr(int ioMode = 0) const
+	{
+		std::string str;
+		getStr(str, ioMode);
+		return str;
+	}
+	std::string serializeToHexStr() const { return getStr(2048); }
+	void deserializeHexStr(const std::string& str)
+	{
+		setStr(str, 2048);
+	}
+	void clear() { memset(&self_, 0, sizeof(self_)); }
 	void setStr(const std::string& str, int ioMode = 0)
 	{
 		int ret = mclBnFr_setStr(&self_.v, str.c_str(), str.size(), ioMode);
@@ -150,6 +164,7 @@ public:
 class SecretKey {
 	blsSecretKey self_;
 public:
+	const blsSecretKey *getPtr() const { return &self_; }
 	bool operator==(const SecretKey& rhs) const
 	{
 		return blsSecretKeyIsEqual(&self_, &rhs.self_) == 1;
@@ -175,6 +190,18 @@ public:
 		if (n == 0) throw std::runtime_error("mclBnFr_getStr");
 		str.resize(n);
 	}
+	std::string getStr(int ioMode = 0) const
+	{
+		std::string str;
+		getStr(str, ioMode);
+		return str;
+	}
+	std::string serializeToHexStr() const { return getStr(2048); }
+	void deserializeHexStr(const std::string& str)
+	{
+		setStr(str, 2048);
+	}
+	void clear() { memset(&self_, 0, sizeof(self_)); }
 	void setStr(const std::string& str, int ioMode = 0)
 	{
 		int ret = mclBnFr_setStr(&self_.v, str.c_str(), str.size(), ioMode);
@@ -282,6 +309,7 @@ class PublicKey {
 	friend class SecretKey;
 	friend class Signature;
 public:
+	const blsPublicKey *getPtr() const { return &self_; }
 	bool operator==(const PublicKey& rhs) const
 	{
 		return blsPublicKeyIsEqual(&self_, &rhs.self_) == 1;
@@ -325,6 +353,18 @@ public:
 		if (n == 0) throw std::runtime_error("PublicKey:getStr");
 		str.resize(n);
 	}
+	std::string getStr(int ioMode = 0) const
+	{
+		std::string str;
+		getStr(str, ioMode);
+		return str;
+	}
+	std::string serializeToHexStr() const { return getStr(2048); }
+	void deserializeHexStr(const std::string& str)
+	{
+		setStr(str, 2048);
+	}
+	void clear() { memset(&self_, 0, sizeof(self_)); }
 	void setStr(const std::string& str, int ioMode = 0)
 	{
 #ifdef BLS_SWAP_G
@@ -377,6 +417,7 @@ class Signature {
 	blsSignature self_;
 	friend class SecretKey;
 public:
+	const blsSignature *getPtr() const { return &self_; }
 	bool operator==(const Signature& rhs) const
 	{
 		return blsSignatureIsEqual(&self_, &rhs.self_) == 1;
@@ -420,6 +461,18 @@ public:
 		if (n == 0) throw std::runtime_error("Signature:tgetStr");
 		str.resize(n);
 	}
+	std::string getStr(int ioMode = 0) const
+	{
+		std::string str;
+		getStr(str, ioMode);
+		return str;
+	}
+	std::string serializeToHexStr() const { return getStr(2048); }
+	void deserializeHexStr(const std::string& str)
+	{
+		setStr(str, 2048);
+	}
+	void clear() { memset(&self_, 0, sizeof(self_)); }
 	void setStr(const std::string& str, int ioMode = 0)
 	{
 #ifdef BLS_SWAP_G

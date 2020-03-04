@@ -71,9 +71,13 @@ static int g_curveType;
 #ifdef BLS_SWAP_G
 typedef G2 G;
 static G1 g_P;
-static G1 g_PadjInv;
+static int g_adjInvIdx;
+static G1 g_PadjInv[2]; // 0:g_P, 1:g_P * adj
+#ifdef BLS_ETH
+static bool g_newEth2;
+#endif
 inline const G1& getBasePoint() { return g_P; }
-inline const G1& getBasePointAdjInv() { return g_PadjInv; } // for only BLS12-381
+inline const G1& getBasePointAdjInv() { return g_PadjInv[g_adjInvIdx]; } // for only BLS12-381
 #else
 typedef G1 G;
 static G2 g_Q;
@@ -83,6 +87,31 @@ inline const G2& getBasePoint() { return g_Q; }
 inline const G2& getBasePointAdjInv() { return getBasePoint(); } // same
 inline const mcl::FixedArray<Fp6, maxQcoeffN>& getQcoeff() { return g_Qcoeff; }
 #endif
+
+int blsSetETHmode(int mode)
+{
+#ifdef BLS_ETH
+	if (g_curveType != MCL_BLS12_381) return -1;
+	switch (mode) {
+	case BLS_ETH_MODE_OLD:
+		g_newEth2 = false;
+		g_adjInvIdx = 1;
+		mclBn_setMapToMode(MCL_MAP_TO_MODE_ETH2);
+		break;
+	case BLS_ETH_MODE_LATEST:
+		g_newEth2 = true;
+		g_adjInvIdx = 0;
+		mclBn_setMapToMode(MCL_MAP_TO_MODE_WB19);
+		break;
+	default:
+		return -1;
+	}
+	return 0;
+#else
+	(void)mode;
+	return -1;
+#endif
+}
 
 int blsInit(int curve, int compiledTimeVar)
 {
@@ -97,16 +126,20 @@ int blsInit(int curve, int compiledTimeVar)
 
 #ifdef BLS_SWAP_G
 	#ifdef BLS_ETH
+	g_newEth2 = false;
 	if (curve == MCL_BLS12_381) {
 		mclBn_setETHserialization(1);
-		mclBn_setMapToMode(MCL_MAP_TO_MODE_ETH2);
 		g_P.setStr(&b, "1 3685416753713387016781088315183077757961620795782546409894578378688607592378376318836054947676345821548104185464507 1339506544944476473020471379941921221584933875938349620426543736416511423956333506472724655353366534992391756441569", 10);
-		G1::mul(g_PadjInv, g_P, mcl::bn::getG2cofactorAdjInv());
+		mclBn_setMapToMode(MCL_MAP_TO_MODE_ETH2);
+		g_PadjInv[0] = g_P;
+		G1::mul(g_PadjInv[1], g_P, mcl::bn::getG2cofactorAdjInv());
+		g_adjInvIdx = 1;
 	} else
 	#endif
 	{
 		mapToG1(&b, g_P, 1);
-		g_PadjInv = g_P;
+		g_PadjInv[0] = g_P;
+		g_adjInvIdx = 0;
 	}
 #else
 
@@ -197,7 +230,7 @@ void blsSign(blsSignature *sig, const blsSecretKey *sec, const void *m, mclSize 
 	blsHashToSignature(sig, m, size);
 	Fr s = *cast(&sec->v);
 #ifdef BLS_ETH
-	if (g_curveType == MCL_BLS12_381) {
+	if (g_curveType == MCL_BLS12_381 && !g_newEth2) {
 		s *= mcl::bn::getG2cofactorAdj();
 	}
 #endif
@@ -249,6 +282,97 @@ int blsVerify(const blsSignature *sig, const blsPublicKey *pub, const void *m, m
 		e(sig, Q) = e(Hm, pub)
 	*/
 	return isEqualTwoPairings(*cast(&sig->v), getQcoeff().data(), Hm, *cast(&pub->v));
+#endif
+}
+
+void blsAggregateSignature(blsSignature *aggSig, const blsSignature *sigVec, mclSize n)
+{
+	if (n == 0) {
+		memset(aggSig, 0, sizeof(*aggSig));
+		return;
+	}
+	*aggSig = sigVec[0];
+	for (mclSize i = 1; i < n; i++) {
+		blsSignatureAdd(aggSig, &sigVec[i]);
+	}
+}
+
+void blsAggregatePublicKey(blsPublicKey *aggPub, const blsPublicKey *pubVec, mclSize n)
+{
+	if (n == 0) {
+		memset(aggPub, 0, sizeof(*aggPub));
+		return;
+	}
+	*aggPub = pubVec[0];
+	for (mclSize i = 1; i < n; i++) {
+		blsPublicKeyAdd(aggPub, &pubVec[i]);
+	}
+}
+
+int blsFastAggregateVerify(const blsSignature *sig, const blsPublicKey *pubVec, mclSize n, const void *msg, mclSize msgSize)
+{
+	if (n == 0) return 0;
+	blsPublicKey aggPub;
+	blsAggregatePublicKey(&aggPub, pubVec, n);
+	return blsVerify(sig, &aggPub, msg, msgSize);
+}
+
+int blsAggregateVerifyNoCheck(const blsSignature *sig, const blsPublicKey *pubVec, const void *msgVec, mclSize msgSize, mclSize n)
+{
+#ifdef BLS_ETH
+	if (n == 0) return 0;
+#if 1 // 1.1 times faster
+	GT e1;
+	const char *msg = (const char*)msgVec;
+	const size_t N = 16;
+	G1 g1Vec[N];
+	G2 g2Vec[N];
+	size_t start = 1; // 1 if first else 0
+
+	g1Vec[0] = getBasePoint();
+	G2::neg(g2Vec[0], *cast(&sig->v));
+	while (n > 0) {
+		size_t m = N - start;
+		if (n < m) m = n;
+		for (size_t i = 0; i < m; i++) {
+			g1Vec[i + start] = *cast(&pubVec[i].v);
+			hashAndMapToG(g2Vec[i + start], &msg[i * msgSize], msgSize);
+		}
+		if (start) {
+			millerLoopVec(e1, g1Vec, g2Vec, m + start);
+			start = 0;
+		} else {
+			GT e2;
+			millerLoopVec(e2, g1Vec, g2Vec, m);
+			e1 *= e2;
+		}
+		pubVec += m;
+		msg += m * msgSize;
+		n -= m;
+	}
+	BN::finalExp(e1, e1);
+	return e1.isOne();
+#else
+	const char *p = (const char *)msgVec;
+	GT s(1), t;
+	for (mclSize i = 0; i < n; i++) {
+		G2 Q;
+		hashAndMapToG(Q, &p[msgSize * i], msgSize);
+		millerLoop(t, *cast(&pubVec[i].v), Q);
+		s *= t;
+	}
+	millerLoop(t, -getBasePoint(), *cast(&sig->v));
+	s *= t;
+	finalExp(s, s);
+	return s.isOne() ? 1 : 0;
+#endif
+#else
+	(void)sig;
+	(void)pubVec;
+	(void)msgVec;
+	(void)msgSize;
+	(void)n;
+	return 0;
 #endif
 }
 
@@ -393,6 +517,10 @@ inline bool toG(G& Hm, const void *h, mclSize size)
 {
 	bool b;
 #ifdef BLS_ETH
+	if (g_newEth2) {
+		BN::hashAndMapToG2(Hm, h, size);
+		return true;
+	}
 	Fp2 t;
 	if (t.deserialize(h, size) == 0) return false;
 	BN::mapToG2(&b, Hm, t, true);
@@ -471,7 +599,7 @@ int blsSignHash(blsSignature *sig, const blsSecretKey *sec, const void *h, mclSi
 	if (!toG(Hm, h, size)) return -1;
 	Fr s = *cast(&sec->v);
 #ifdef BLS_ETH
-	if (g_curveType == MCL_BLS12_381) {
+	if (g_curveType == MCL_BLS12_381 && !g_newEth2) {
 		s *= mcl::bn::getG2cofactorAdj();
 	}
 #endif
