@@ -172,56 +172,32 @@ bls-wasm:
 bls-eth-wasm:
 	$(MAKE) ../bls-eth-wasm/bls_c.js
 
-CLANG_WASM_OPT=-O3 -DNDEBUG -fPIC -DMCL_SIZEOF_UNIT=8 -DMCL_MAX_BIT_SIZE=384 -DMCL_LLVM_BMI2=0 -DMCL_USE_LLVM=1 -DCYBOZU_DONT_USE_EXCEPTION -DCYBOZU_MINIMUM_EXCEPTION -DCYBOZU_DONT_USE_STRING -DMCL_DONT_USE_CSPRNG -I./include -I./src -I../mcl/include -fno-builtin  --target=wasm32-unknown-unknown-wasm  -Wstrict-prototypes -Wno-unused-parameter -ffreestanding -fno-exceptions -fvisibility=hidden -Wall -Wextra -fno-threadsafe-statics -nodefaultlibs -nostdlib -fno-use-cxa-atexit -fno-unwind-tables -fno-rtti -nostdinc++ -std=c++03 -DLLONG_MIN=-0x8000000000000000LL
-bls-wasm-by-clang:
-	clang++-8 -c -o $(OBJ_DIR)/bls_c384_256.o src/bls_c384_256.cpp $(CLANG_WASM_OPT)
-	clang++-8 -c -o $(OBJ_DIR)/fp.o ../mcl/src/fp.cpp $(CLANG_WASM_OPT)
-	clang++-8 -c -o $(OBJ_DIR)/base64.o ../mcl/src/base64.ll $(CLANG_WASM_OPT)
-	wasm-ld-8 --no-entry -o ../bls-wasm $(OBJ_DIR)/bls_c384_256.o $(OBJ_DIR)/fp.o $(OBJ_DIR)/base64.o
-	#ld.gold -o ../bls-wasm $(OBJ_DIR)/bls_c384_256.o $(OBJ_DIR)/fp.o
+#CLANG_WASM_OPT= -fno-builtin  --target=wasm32-unknown-unknown-wasm -Wno-unused-parameter -ffreestanding -fno-exceptions -fvisibility=hidden -Wall -Wextra -fno-threadsafe-statics -nodefaultlibs -nostdlib -fno-use-cxa-atexit -fno-unwind-tables -fno-rtti -nostdinc++ -DLLONG_MIN=-0x8000000000000000LL
 
-# ios
-XCODEPATH=$(shell xcode-select -p)
-IOS_CLANG=$(XCODEPATH)/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang
-IOS_AR=${XCODEPATH}/Toolchains/XcodeDefault.xctoolchain/usr/bin/ar
-PLATFORM?="iPhoneOS"
-IOS_MIN_VERSION?=7.0
-IOS_CFLAGS=-fembed-bitcode -fno-common -DPIC -fPIC -Dmcl_EXPORTS
-IOS_CFLAGS+=-DMCL_USE_VINT -DMCL_VINT_FIXED_BUFFER -DMCL_DONT_USE_OPENSSL -DMCL_DONT_USE_XBYAK -DMCL_LLVM_BMI2=0 -DMCL_USE_LLVM=1 -DMCL_SIZEOF_UNIT=8 -I ./include -std=c++11 -Wall -Wextra -Wformat=2 -Wcast-qual -Wcast-align -Wwrite-strings -Wfloat-equal -Wpointer-arith -O3 -DNDEBUG
-IOS_CFLAGS+=-I../mcl/include
-IOS_LDFLAGS=-dynamiclib -Wl,-flat_namespace -Wl,-undefined -Wl,suppress
-CURVE_BIT?=256
-IOS_OBJS=$(IOS_OUTDIR)/fp.o $(IOS_OUTDIR)/base64.o $(IOS_OUTDIR)/bls_c$(CURVE_BIT).o
-IOS_LIB=libbls$(CURVE_BIT)
+BASE_CFLAGS=-O3 -g -DNDEBUG -I ./include -I ../mcl/include -I ./src -fPIC -DMCL_MAX_BIT_SIZE=384 -DMCL_SIZEOF_UNIT=8 -DMCL_LLVM_BMI2=0 -DCYBOZU_DONT_USE_EXCEPTION -DMCL_DONT_USE_CSPRNG -DCYBOZU_DONT_USE_STRING -DCYBOZU_MINIMUM_EXCEPTION -Wno-unused-parameter -Wall -Wextra -fno-threadsafe-statics -fno-use-cxa-atexit -fno-unwind-tables -fno-builtin -fvisibility=hidden -fno-rtti -fno-stack-protector -fno-exceptions -nostdinc++
+WASM_OUT_DIR=../bls-wasm/
+WASM_SRC_BASENAME=bls_c384
+ifeq ($(BLS_ETH),1)
+  BASE_CFLAGS+=-DBLS_ETH
+  WASM_OUT_DIR=../bls-eth-wasm/
+  WASM_SRC_BASENAME=bls_c384_256
+endif
+CLANG_WASM_OPT=$(BASE_CFLAGS) --target=wasm32-unknown-unknown-wasm -ffreestanding -nostdlib -DMCL_USE_LLVM=1 -DLLONG_MIN=-0x8000000000000000LL
+bls-wasm-by-clang: ../mcl/src/base64m.ll
+	$(CXX) -x c -c -o $(OBJ_DIR)/mylib.o src/mylib.c $(CLANG_WASM_OPT) -Wstrict-prototypes
+	$(CXX) -c -o $(OBJ_DIR)/base64m.o ../mcl/src/base64m.ll $(CLANG_WASM_OPT) -std=c++03
+	$(CXX) -c -o $(OBJ_DIR)/$(WASM_SRC_BASENAME).o src/$(WASM_SRC_BASENAME).cpp $(CLANG_WASM_OPT) -std=c++03
+	$(CXX) -c -o $(OBJ_DIR)/fp.o ../mcl/src/fp.cpp $(CLANG_WASM_OPT) -std=c++03
+	wasm-ld-8 --no-entry --export-dynamic -o $(WASM_OUT_DIR)/bls.wasm $(OBJ_DIR)/$(WASM_SRC_BASENAME).o $(OBJ_DIR)/fp.o $(OBJ_DIR)/mylib.o $(OBJ_DIR)/base64m.o #--stack-first
 
-GOMOBILE_ARCHS=armv7 arm64 i386 x86_64
+bin/minsample: sample/minsample.c
+	$(CXX) -o bin/minsample sample/minsample.c src/mylib.c src/$(WASM_SRC_BASENAME).cpp ../mcl/src/fp.cpp $(BASE_CFLAGS) -std=c++03 -DMCL_DONT_USE_XBYAK -DMCL_USE_VINT -DMCL_VINT_FIXED_BUFFER -DMCL_DONT_USE_OPENSSL
 
 ../mcl/src/base64.ll:
 	$(MAKE) -C ../mcl src/base64.ll
 
-ios: ../mcl/src/base64.ll
-	@echo "Building iOS $(ARCH)..."
-	$(eval IOS_OUTDIR=ios/$(ARCH))
-	$(eval IOS_SDK_PATH=$(XCODEPATH)/Platforms/$(PLATFORM).platform/Developer/SDKs/$(PLATFORM).sdk)
-	$(eval IOS_COMMON=-arch $(ARCH) -isysroot $(IOS_SDK_PATH) -mios-version-min=$(IOS_MIN_VERSION))
-	@$(MKDIR) $(IOS_OUTDIR)
-	$(IOS_CLANG) $(IOS_COMMON) $(IOS_CFLAGS) -c ../mcl/src/fp.cpp -o $(IOS_OUTDIR)/fp.o
-	$(IOS_CLANG) $(IOS_COMMON) $(IOS_CFLAGS) -c ../mcl/src/base64.ll -o $(IOS_OUTDIR)/base64.o
-	$(IOS_CLANG) $(IOS_COMMON) $(IOS_CFLAGS) -c src/bls_c$(CURVE_BIT).cpp -o $(IOS_OUTDIR)/bls_c$(CURVE_BIT).o
-	$(IOS_CLANG) $(IOS_COMMON) $(IOS_LDFLAGS) -install_name $(XCODEPATH)/Platforms/$(PLATFORM).platform/Developer/usr/lib/$(IOS_LIB).dylib -o $(IOS_OUTDIR)/$(IOS_LIB).dylib $(IOS_OBJS)
-	ar cru $(IOS_OUTDIR)/$(IOS_LIB).a $(IOS_OBJS)
-	ranlib $(IOS_OUTDIR)/$(IOS_LIB).a
-
-gomobile: ../mcl/src/base64.ll
-	@for target in $(GOMOBILE_ARCHS); do \
-		if [ "$$target" == "i386" ] || [ "$$target" == "x86_64" ] ; then \
-			$(MAKE) ios ARCH=$$target PLATFORM="iPhoneSimulator"; \
-		else \
-			$(MAKE) ios ARCH=$$target PLATFORM="iPhoneOS"; \
-		fi \
-	done
-	@lipo "ios/armv7/libbls$(CURVE_BIT).a"  "ios/arm64/libbls$(CURVE_BIT).a" "ios/i386/libbls$(CURVE_BIT).a" "ios/x86_64/libbls$(CURVE_BIT).a" -create -output ios/libbls$(CURVE_BIT).a
-	@lipo "ios/armv7/libbls$(CURVE_BIT).dylib"  "ios/arm64/libbls$(CURVE_BIT).dylib" "ios/i386/libbls$(CURVE_BIT).dylib" "ios/x86_64/libbls$(CURVE_BIT).dylib" -create -output lib/libbls$(CURVE_BIT).dylib
+../mcl/src/base64m.ll:
+	$(MAKE) -C ../mcl src/base64m.ll
 
 MIN_CFLAGS=-std=c++03 -O3 -DNDEBUG -fPIC -DMCL_DONT_USE_OPENSSL -DMCL_USE_VINT -DMCL_SIZEOF_UNIT=8 -DMCL_VINT_FIXED_BUFFER -DMCL_MAX_BIT_SIZE=384 -DCYBOZU_DONT_USE_EXCEPTION -DCYBOZU_DONT_USE_STRING -I./include -I../mcl/include
 ifneq ($(MIN_WITH_XBYAK),1)

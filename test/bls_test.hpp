@@ -623,9 +623,9 @@ void ethAggregateTest()
 	const struct {
 		const char *s;
 	} tbl[] = {
-		"b2a0bd8e837fc2a1b28ee5bcf2cddea05f0f341b375e51de9d9ee6d977c2813a5c5583c19d4e7db8d245eebd4e502163076330c988c91493a61b97504d1af85fdc167277a1664d2a43af239f76f176b215e0ee81dc42f1c011dc02d8b0a31e32",
-		"b2deb7c656c86cb18c43dae94b21b107595486438e0b906f3bdb29fa316d0fc3cab1fc04c6ec9879c773849f2564d39317bfa948b4a35fc8509beafd3a2575c25c077ba8bca4df06cb547fe7ca3b107d49794b7132ef3b5493a6ffb2aad2a441",
-		"a1db7274d8981999fee975159998ad1cc6d92cd8f4b559a8d29190dad41dc6c7d17f3be2056046a8bcbf4ff6f66f2a360860fdfaefa91b8eca875d54aca2b74ed7148f9e89e2913210a0d4107f68dbc9e034acfc386039ff99524faf2782de0e",
+		{ "b2a0bd8e837fc2a1b28ee5bcf2cddea05f0f341b375e51de9d9ee6d977c2813a5c5583c19d4e7db8d245eebd4e502163076330c988c91493a61b97504d1af85fdc167277a1664d2a43af239f76f176b215e0ee81dc42f1c011dc02d8b0a31e32" },
+		{ "b2deb7c656c86cb18c43dae94b21b107595486438e0b906f3bdb29fa316d0fc3cab1fc04c6ec9879c773849f2564d39317bfa948b4a35fc8509beafd3a2575c25c077ba8bca4df06cb547fe7ca3b107d49794b7132ef3b5493a6ffb2aad2a441" },
+		{ "a1db7274d8981999fee975159998ad1cc6d92cd8f4b559a8d29190dad41dc6c7d17f3be2056046a8bcbf4ff6f66f2a360860fdfaefa91b8eca875d54aca2b74ed7148f9e89e2913210a0d4107f68dbc9e034acfc386039ff99524faf2782de0e" },
 	};
 	const char *expect = "973ab0d765b734b1cbb2557bcf52392c9c7be3cd21d5bd28572d99f618c65e921f0dd82560cc103feb9f000c23c00e660e1364ed094f137e1045e73116cd75903af446df3c357540a4970ec367a7f7fa7493a5db27ca322c48d57740908585e8";
 	const size_t n = CYBOZU_NUM_OF_ARRAY(tbl);
@@ -652,15 +652,11 @@ void ethSignOneTest(const std::string& secHex, const std::string& msgHex, const 
 	CYBOZU_TEST_ASSERT(sig.verify(pub, msg.data(), msg.size()));
 }
 
-void ethSignTest()
+void ethSignFileTest(const std::string& dir)
 {
-	puts("ethSignTest");
-	std::string fileName = cybozu::GetExePath() + "../test/eth/sign.txt";
+	std::string fileName = cybozu::GetExePath() + "../test/eth/" + dir + "/sign.txt";
 	std::ifstream ifs(fileName.c_str());
-	if (!ifs) {
-		fprintf(stderr, "skip ethSignTest because %s is not found\n", fileName.c_str());
-		return;
-	}
+	CYBOZU_TEST_ASSERT(ifs);
 	for (;;) {
 		std::string h1, h2, h3, sec, msg, sig;
 		ifs >>  h1 >> sec >> h2 >> msg >> h3 >> sig;
@@ -670,21 +666,24 @@ void ethSignTest()
 		}
 		ethSignOneTest(sec, msg, sig);
 	}
+}
+
+void ethSignTest()
+{
+	puts("ethSignTest");
+	ethSignFileTest("draft05");
 	const char *secHex = "47b8192d77bf871b62e87859d653922725724a5c031afeabc60bcef5ff665138";
 	const char *msgHex = "0000000000000000000000000000000000000000000000000000000000000000";
 	const char *sigHex = "b2deb7c656c86cb18c43dae94b21b107595486438e0b906f3bdb29fa316d0fc3cab1fc04c6ec9879c773849f2564d39317bfa948b4a35fc8509beafd3a2575c25c077ba8bca4df06cb547fe7ca3b107d49794b7132ef3b5493a6ffb2aad2a441";
 	ethSignOneTest(secHex, msgHex, sigHex);
 }
 
-void ethFastAggregateVerifyTest()
+void ethFastAggregateVerifyTest(const std::string& dir)
 {
 	puts("ethFastAggregateVerifyTest");
-	std::string fileName = cybozu::GetExePath() + "../test/eth/fast_aggregate_verify.txt";
+	std::string fileName = cybozu::GetExePath() + "../test/eth/" + dir + "/fast_aggregate_verify.txt";
 	std::ifstream ifs(fileName.c_str());
-	if (!ifs) {
-		fprintf(stderr, "skip ethFastAggregateVerifyTest because %s is not found\n", fileName.c_str());
-		return;
-	}
+	CYBOZU_TEST_ASSERT(ifs);
 	int i = 0;
 	for (;;) {
 		std::vector<bls::PublicKey> pubVec;
@@ -767,14 +766,47 @@ void draft06Test()
 	blsSecretKeySetHexStr(&sec, "1", 1);
 	blsSignature sig;
 	const char *msg = "asdf";
+	const char *tbl[] = {
+		"991465766822328609851486184896183909315973720876657478886869638351620419080108037412710821468345199867495830514994",
+		"1927263325419177785864064254809595520594843896432194052293468762304708262511397472768048460101768845190689994385404",
+		"1809070181727662187520244137990122973104312257969329378620821268587650918986396248285565202085536393521872124028279",
+		"422840987629306440608451989474855096319159701852700504738670150565612981489044166427550429014138733315907834328002",
+	};
 	blsSign(&sig, &sec, msg, strlen(msg));
-	uint8_t buf[1024];
-	size_t n = blsSignatureSerializeUncompressed(&buf, sizeof(buf), &sig);
-	printf("hash(%s)=", msg);
-	for (size_t i = 0; i < n; i++) {
-		printf("%02x", buf[i]);
+	mclBnG2_normalize(&sig.v, &sig.v);
+	const mclBnFp *p = &sig.v.x.d[0];
+	for (int i = 0; i < 4; i++) {
+		char buf[128];
+		mclBnFp_getStr(buf, sizeof(buf), &p[i], 10);
+		CYBOZU_TEST_EQUAL(buf, tbl[i]);
 	}
-	printf("\n");
+}
+
+void draft07Test()
+{
+	blsSetETHmode(BLS_ETH_MODE_DRAFT_07);
+	blsSecretKey sec;
+	blsSecretKeySetHexStr(&sec, "1", 1);
+	blsSignature sig;
+	const char *msg = "asdf";
+	const char *tbl[] = {
+		"2525875563870715639912451285996878827057943937903727288399283574780255586622124951113038778168766058972461529282986",
+		"3132482115871619853374334004070359337604487429071253737901486558733107203612153024147084489564256619439711974285977",
+		"2106640002084734620850657217129389007976098691731730501862206029008913488613958311385644530040820978748080676977912",
+		"2882649322619140307052211460282445786973517746532934590265600680988689024512167659295505342688129634612479405019290",
+	};
+	blsSign(&sig, &sec, msg, strlen(msg));
+	mclBnG2_normalize(&sig.v, &sig.v);
+	{
+		const bls::Signature& b = *(const bls::Signature*)(&sig);
+		printf("draft07-sig(%s) by sec=1 =%s\n", msg, b.serializeToHexStr().c_str());
+	}
+	const mclBnFp *p = &sig.v.x.d[0];
+	for (int i = 0; i < 4; i++) {
+		char buf[128];
+		mclBnFp_getStr(buf, sizeof(buf), &p[i], 10);
+		CYBOZU_TEST_EQUAL(buf, tbl[i]);
+	}
 }
 
 void ethTest(int type)
@@ -784,9 +816,10 @@ void ethTest(int type)
 	ethAggregateTest();
 	ethSignTest();
 	ethAggregateVerifyNoCheckTest();
-	ethFastAggregateVerifyTest();
+	ethFastAggregateVerifyTest("draft05");
 	blsAggregateVerifyNoCheckTest();
 	draft06Test();
+	draft07Test();
 }
 #endif
 
